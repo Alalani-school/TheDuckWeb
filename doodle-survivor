@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Doodle Survivor: Dynamic Backpack</title>
+    <style>
+        body { 
+            background: #2b2b2b; color: white; text-align: center; 
+            font-family: 'Comic Sans MS', cursive, sans-serif; margin-top: 20px;
+        }
+        canvas { 
+            background-color: #fdf6e3;
+            background-image: 
+                linear-gradient(90deg, transparent 79px, #ff9999 79px, #ff9999 81px, transparent 81px),
+                linear-gradient(#e0e0e0 .1em, transparent .1em);
+            background-size: 100% 30px;
+            display: block; margin: 0 auto;
+            border: 3px solid #111; border-radius: 5px;
+            box-shadow: 5px 5px 15px rgba(0,0,0,0.5);
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>✏️ DOODLE SURVIVOR ✏️</h1>
+    <p>Move to dodge, <b>CLICK</b> to attack. Press <b>TAB</b> for Backpack.</p>
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let gameState = "MAIN_MENU"; 
+        const MAX_LEVEL = 5; 
+        
+        let pointer = { x: 400, y: 250 };
+        let lastPointer = { x: 400, y: 250 };
+        let mouse = { x: 400, y: 250, radius: 10, health: 100 };
+        let playerAngle = 0; 
+        let showInventory = false;
+        let resumeTimer = 0; let aiTimer = 0; 
+        
+        let enemies = []; let bullets = []; let enemyBullets = []; 
+        let traps = []; let erasers = []; let whiteouts = []; let clickEffects = []; 
+        
+        let wave = 1; let enemiesToSpawn = 10; let spawnTimer = 0; let score = 0;
+
+        let mainWeapon = null; let clickCooldown = 0;
+        let inventory = { turrets: 0, pencils: 0, eraserShields: 0, paperclips: 0, highlighter: 0, whiteout: 0, protractor: 0 };
+        let turretAngle = 0;
+        let weaponCooldowns = { turret: 0, pencil: 0, whiteout: 0, protractor: 0, autoClick: 0 };
+
+        const starterWeapons = [
+            { id: 'trap', name: "Ink Trap", desc: "Drop explosive ink.", cooldown: 100 },
+            { id: 'stapler', name: "Stapler Chomp", desc: "Huge, devastating bite.", cooldown: 15 },
+            { id: 'ruler', name: "Ruler Swing", desc: "Huge forward sweep arc.", cooldown: 60 },
+            { id: 'fountain', name: "Fountain Pen", desc: "Fires a piercing blast.", cooldown: 45 }
+        ];
+
+        const upgradePool = [
+            { id: 'turret', name: "Blue Pen Turret", desc: "Auto-aims at enemies" },
+            { id: 'pencil', name: "Orange Pencils", desc: "Shoots in 4 directions" },
+            { id: 'eraser', name: "Pink Eraser", desc: "Orbiting crushing shield" },
+            { id: 'paperclip', name: "Paperclip Toss", desc: "Adds 2 permanent bouncing clips" },
+            { id: 'highlighter', name: "Highlighter Aura", desc: "Melts enemies near you" },
+            { id: 'whiteout', name: "White-Out Splash", desc: "Drops puddles that slow enemies" },
+            { id: 'protractor', name: "Spinning Protractor", desc: "Throws a piercing geometric buzzsaw" },
+            { id: 'health', name: "Coffee Break", desc: "Heal +50 HP" }
+        ];
+        let currentUpgrades = [];
+
+        const itemNames = {
+            turrets: "Blue Pen Turret", pencils: "Orange Pencils", eraserShields: "Pink Eraser Shield",
+            paperclips: "Bouncy Paperclips", highlighter: "Highlighter Aura", whiteout: "White-Out Splash", protractor: "Spinning Protractor"
+        };
+        const keyMap = { 'turret':'turrets', 'pencil':'pencils', 'eraser':'eraserShields', 'paperclip':'paperclips', 'highlighter':'highlighter', 'whiteout':'whiteout', 'protractor':'protractor' };
+
+        function resetGame() {
+            mouse.health = 100; wave = 1; score = 0; enemiesToSpawn = 15;
+            enemies = []; bullets = []; enemyBullets = []; traps = []; whiteouts = []; clickEffects = [];
+            inventory = { turrets: 0, pencils: 0, eraserShields: 0, paperclips: 0, highlighter: 0, whiteout: 0, protractor: 0 };
+            mainWeapon = null;
+        }
+
+        function getBoxX(index, totalItems) {
+            let boxWidth = 170; let gap = 20;
+            let totalWidth = (totalItems * boxWidth) + ((totalItems - 1) * gap);
+            let startX = (canvas.width - totalWidth) / 2;
+            return startX + (index * (boxWidth + gap));
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            pointer.x = e.clientX - rect.left; pointer.y = e.clientY - rect.top;
+
+            if ((gameState === "PLAYING" || gameState === "CUSTOM_PLAYING") && !showInventory && resumeTimer <= 0) {
+                mouse.x = pointer.x; mouse.y = pointer.y;
+                let dx = pointer.x - lastPointer.x; let dy = pointer.y - lastPointer.y;
+                if (Math.abs(dx) > 1 || Math.abs(dy) > 1) { playerAngle = Math.atan2(dy, dx); }
+                lastPointer.x = pointer.x; lastPointer.y = pointer.y;
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === "Tab" && (gameState === "PLAYING" || gameState === "CUSTOM_PLAYING")) { 
+                e.preventDefault(); showInventory = !showInventory; 
+                if (!showInventory) { resumeTimer = 30; mouse.x = pointer.x; mouse.y = pointer.y; }
+            }
+            if (gameState === "CUSTOM_PLAYING" && !showInventory) {
+                let spawnX = Math.random() > 0.5 ? -20 : canvas.width + 20;
+                let spawnY = Math.random() * canvas.height;
+                
+                if (e.key === "7") enemies.push({ x: spawnX, y: spawnY, size: 20, speed: 1.5, hp: 50, type: 'basic', iFrames: 0 });
+                if (e.key === "8") enemies.push({ x: spawnX, y: spawnY, size: 40, speed: 0.8, hp: 150, type: 'tank', iFrames: 0 });
+                if (e.key === "9") enemies.push({ x: spawnX, y: spawnY, size: 25, speed: 1.0, hp: 50, type: 'sniper', state: 'moving', timer: 60, iFrames: 0 });
+                if (e.key === "0") {
+                    for(let c=0; c<5; c++) enemies.push({ x: spawnX + Math.random()*40-20, y: spawnY + Math.random()*40-20, size: 12, speed: 2.8, hp: 10, type: 'clone', iFrames: 0 });
+                }
+            }
+        });
+
+        canvas.addEventListener('mousedown', function() {
+            if (resumeTimer > 0) return;
+
+            if (showInventory && gameState === "CUSTOM_PLAYING") {
+                let itemsList = Object.keys(itemNames);
+                let startY = 160;
+                
+                itemsList.forEach((key, i) => {
+                    let col = i % 2; let row = Math.floor(i / 2);
+                    let bx = 110 + (col * 290); let by = startY + (row * 65);
+
+                    if (pointer.x >= bx+170 && pointer.x <= bx+210 && pointer.y >= by+15 && pointer.y <= by+45) {
+                        inventory[key] = Math.max(0, inventory[key] - 1); 
+                    }
+                    if (pointer.x >= bx+220 && pointer.x <= bx+260 && pointer.y >= by+15 && pointer.y <= by+45) {
+                        inventory[key] = Math.min(MAX_LEVEL, inventory[key] + 1); 
+                        if(key === 'paperclips') { 
+                            bullets = bullets.filter(b => b.type !== 'paperclip');
+                            for(let j=0; j<inventory.paperclips*2; j++) {
+                                let a = Math.random() * Math.PI * 2;
+                                bullets.push({ x: mouse.x, y: mouse.y, vx: Math.cos(a)*4, vy: Math.sin(a)*4, radius: 8, type: 'paperclip' });
+                            }
+                        }
+                    }
+                });
+                return;
+            }
+            if (showInventory) return;
+
+            if (gameState === "MAIN_MENU") {
+                if (pointer.x >= 200 && pointer.x <= 380 && pointer.y >= 350 && pointer.y <= 430) {
+                    resetGame(); gameState = "START"; 
+                }
+                if (pointer.x >= 420 && pointer.x <= 600 && pointer.y >= 350 && pointer.y <= 430) {
+                    resetGame(); gameState = "CUSTOM_START"; 
+                } return;
+            }
+
+            if (gameState === "GAMEOVER") { resetGame(); gameState = "MAIN_MENU"; return; }
+            
+            if (gameState === "START" || gameState === "CUSTOM_START" || gameState === "UPGRADING") {
+                let itemsList = (gameState === "START" || gameState === "CUSTOM_START") ? starterWeapons : currentUpgrades;
+                
+                for(let i = 0; i < itemsList.length; i++) {
+                    let bx = getBoxX(i, itemsList.length);
+                    if (pointer.x >= bx && pointer.x <= bx + 170 && pointer.y >= 200 && pointer.y <= 350) {
+                        if (gameState === "START" || gameState === "CUSTOM_START") {
+                            mainWeapon = starterWeapons[i];
+                            gameState = gameState === "START" ? "PLAYING" : "CUSTOM_PLAYING";
+                        } else if (gameState === "UPGRADING") {
+                            applyUpgrade(currentUpgrades[i].id);
+                            wave++; enemiesToSpawn = wave * 12 + 5; 
+                            gameState = "PLAYING"; 
+                        }
+                        mouse.x = pointer.x; mouse.y = pointer.y; resumeTimer = 30; break;
+                    }
+                } return;
+            }
+            if ((gameState === "PLAYING" || gameState === "CUSTOM_PLAYING") && clickCooldown <= 0 && mainWeapon) fireMainWeapon();
+        });
+
+        function fireMainWeapon() {
+            clickCooldown = mainWeapon.cooldown;
+            if (mainWeapon.id === 'trap') { traps.push({ x: mouse.x, y: mouse.y, radius: 25, type: 'ink' }); } 
+            else if (mainWeapon.id === 'stapler') {
+                clickEffects.push({ x: mouse.x, y: mouse.y, radius: 65, type: 'circle', color: "gray", timer: 10 });
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    if (Math.hypot(mouse.x - enemies[i].x, mouse.y - enemies[i].y) < 65 + enemies[i].size) {
+                        enemies[i].hp -= 150; if (enemies[i].hp <= 0) killEnemy(i);
+                    }
+                } destroyEnemyBulletsInRadius(mouse.x, mouse.y, 65);
+            }
+            else if (mainWeapon.id === 'ruler') {
+                clickEffects.push({ x: mouse.x, y: mouse.y, radius: 110, angle: playerAngle, type: 'cone', color: "#e6c200", timer: 15 });
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    let dx = enemies[i].x - mouse.x; let dy = enemies[i].y - mouse.y;
+                    if (Math.hypot(dx, dy) < 110 + enemies[i].size) {
+                        let aDiff = Math.abs(Math.atan2(dy, dx) - playerAngle);
+                        if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
+                        if (aDiff < Math.PI / 3) { enemies[i].hp -= 60; if (enemies[i].hp <= 0) killEnemy(i); }
+                    }
+                }
+                for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                    let dx = enemyBullets[i].x - mouse.x; let dy = enemyBullets[i].y - mouse.y;
+                    if (Math.hypot(dx, dy) < 110) {
+                        let aDiff = Math.abs(Math.atan2(dy, dx) - playerAngle);
+                        if (aDiff > Math.PI) aDiff = 2 * Math.PI - aDiff;
+                        if (aDiff < Math.PI / 3) enemyBullets.splice(i, 1);
+                    }
+                }
+            }
+            else if (mainWeapon.id === 'fountain') {
+                bullets.push({ x: mouse.x, y: mouse.y, vx: Math.cos(playerAngle)*12, vy: Math.sin(playerAngle)*12, radius: 8, type: 'pierce', pierceCount: 4 });
+            }
+        }
+
+        function destroyEnemyBulletsInRadius(tx, ty, r) {
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                if (Math.hypot(tx - enemyBullets[i].x, ty - enemyBullets[i].y) < r + 5) enemyBullets.splice(i, 1);
+            }
+        }
+
+        function applyUpgrade(id) {
+            if (id === 'turret') inventory.turrets++; if (id === 'pencil') inventory.pencils++;
+            if (id === 'eraser') inventory.eraserShields++; if (id === 'highlighter') inventory.highlighter++;
+            if (id === 'whiteout') inventory.whiteout++; if (id === 'protractor') inventory.protractor++;
+            if (id === 'health') mouse.health = Math.min(100, mouse.health + 50);
+            if (id === 'paperclip') {
+                inventory.paperclips++;
+                for(let i=0; i<2; i++) {
+                    let a = Math.random() * Math.PI * 2;
+                    bullets.push({ x: mouse.x, y: mouse.y, vx: Math.cos(a)*4, vy: Math.sin(a)*4, radius: 8, type: 'paperclip' });
+                }
+            }
+        }
+
+        function drawShape(type, x, y, s, c) {
+            ctx.strokeStyle = c; ctx.lineWidth = 2;
+            for (let i=0; i<2; i++) {
+                ctx.beginPath();
+                if(type === 'rect') {
+                    ctx.moveTo(x+Math.random()*4-2, y+Math.random()*4-2); ctx.lineTo(x+s+Math.random()*4-2, y+Math.random()*4-2);
+                    ctx.lineTo(x+s+Math.random()*4-2, y+s+Math.random()*4-2); ctx.lineTo(x+Math.random()*4-2, y+s+Math.random()*4-2);
+                } else if(type === 'tri') {
+                    ctx.moveTo(x+Math.random()*4-2, y-s/2+Math.random()*4-2); ctx.lineTo(x-s/2+Math.random()*4-2, y+s/2+Math.random()*4-2);
+                    ctx.lineTo(x+s/2+Math.random()*4-2, y+s/2+Math.random()*4-2);
+                } else if(type === 'circ') {
+                    ctx.arc(x+Math.random()*3-1.5, y+Math.random()*3-1.5, s+Math.random()*2, 0, Math.PI * 2);
+                } ctx.closePath(); ctx.stroke();
+            }
+        }
+
+        function update() {
+            canvas.style.cursor = ((gameState === "PLAYING" || gameState === "CUSTOM_PLAYING") && !showInventory) ? "none" : "crosshair";
+            if (showInventory || resumeTimer > 0) { if(resumeTimer>0) resumeTimer--; return; }
+            if (gameState !== "PLAYING" && gameState !== "MAIN_MENU" && gameState !== "CUSTOM_PLAYING") return;
+
+            if (gameState === "MAIN_MENU") {
+                aiTimer++; mouse.x = 400 + Math.sin(aiTimer * 0.02) * 250; mouse.y = 250 + Math.sin(aiTimer * 0.04) * 150;
+                playerAngle = Math.atan2(Math.sin(aiTimer * 0.04) * 150, Math.cos(aiTimer * 0.02) * 250);
+                weaponCooldowns.autoClick--;
+                if (weaponCooldowns.autoClick <= 0) { mainWeapon = starterWeapons[Math.floor(Math.random()*4)]; fireMainWeapon(); weaponCooldowns.autoClick = 40; }
+                if (enemies.length < 15) enemiesToSpawn = 1; 
+            }
+
+            if (clickCooldown > 0) clickCooldown--;
+
+            if (gameState === "PLAYING" && enemies.length === 0 && enemiesToSpawn <= 0) {
+                gameState = "UPGRADING"; traps = []; enemyBullets = []; whiteouts = [];
+                bullets = bullets.filter(b => b.type === 'paperclip'); 
+                
+                let availablePool = upgradePool.filter(u => { let k = keyMap[u.id]; return k ? inventory[k] < MAX_LEVEL : true; });
+                let shuffled = [...availablePool].sort(() => 0.5 - Math.random());
+                currentUpgrades = shuffled.slice(0, Math.min(3, shuffled.length)); return;
+            }
+
+            if (gameState !== "CUSTOM_PLAYING") {
+                spawnTimer++;
+                let spawnRate = gameState === "MAIN_MENU" ? 20 : Math.max(5, 45 - (wave * 3));
+                let currentWave = gameState === "MAIN_MENU" ? 6 : wave; 
+
+                if (spawnTimer > spawnRate && enemiesToSpawn > 0) {
+                    let ex = Math.random() > 0.5 ? -20 : canvas.width + 20; let ey = Math.random() * canvas.height;
+                    let r = Math.random(); let baseHp = 50; 
+                    
+                    if (currentWave >= 4 && r < 0.25) {
+                        for(let c=0; c<4; c++) enemies.push({ x: ex+Math.random()*40-20, y: ey+Math.random()*40-20, size: 12, speed: 2.8, hp: 10, type: 'clone', iFrames: 0 });
+                    }
+                    else if (currentWave >= 5 && r < 0.45) enemies.push({ x: ex, y: ey, size: 25, speed: 1.0, hp: baseHp, type: 'sniper', state: 'moving', timer: 60, iFrames: 0 });
+                    else if (currentWave >= 3 && r < 0.65) enemies.push({ x: ex, y: ey, size: 40, speed: 0.8, hp: baseHp * 3, type: 'tank', iFrames: 0 }); 
+                    else enemies.push({ x: ex, y: ey, size: 20, speed: 1.5, hp: baseHp, type: 'basic', iFrames: 0 });
+                    
+                    enemiesToSpawn--; spawnTimer = 0;
+                }
+            } else {
+                mouse.health = 100;
+            }
+
+            turretAngle += 0.05; weaponCooldowns.turret--; weaponCooldowns.pencil--; weaponCooldowns.whiteout--; weaponCooldowns.protractor--;
+
+            if (inventory.protractor > 0 && weaponCooldowns.protractor <= 0 && enemies.length > 0) {
+                let closest = enemies.reduce((prev, curr) => Math.hypot(curr.x-mouse.x, curr.y-mouse.y) < Math.hypot(prev.x-mouse.x, prev.y-mouse.y) ? curr : prev);
+                let angle = Math.atan2(closest.y - mouse.y, closest.x - mouse.x);
+                bullets.push({ 
+                    x: mouse.x, y: mouse.y, 
+                    vx: Math.cos(angle)*6, vy: Math.sin(angle)*6, 
+                    radius: 25, type: 'protractor', 
+                    rotation: angle, spinSpeed: 0.2,
+                    pierceCount: 3 + inventory.protractor 
+                });
+                weaponCooldowns.protractor = 100 - (inventory.protractor * 8); 
+            }
+
+            if (inventory.turrets > 0 && weaponCooldowns.turret <= 0 && enemies.length > 0) {
+                let tx = mouse.x + Math.cos(turretAngle) * 40; let ty = mouse.y + Math.sin(turretAngle) * 40;
+                let closest = enemies.reduce((prev, curr) => Math.hypot(curr.x-tx, curr.y-ty) < Math.hypot(prev.x-tx, prev.y-ty) ? curr : prev);
+                let angle = Math.atan2(closest.y - ty, closest.x - tx);
+                bullets.push({ x: tx, y: ty, vx: Math.cos(angle)*7, vy: Math.sin(angle)*7, radius: 4, type: 'lead' });
+                weaponCooldowns.turret = 40 - (inventory.turrets * 5); 
+            }
+            if (inventory.pencils > 0 && weaponCooldowns.pencil <= 0) {
+                [[5,0], [-5,0], [0,5], [0,-5]].forEach(s => bullets.push({ x: mouse.x, y: mouse.y, vx: s[0], vy: s[1], radius: 6, type: 'pencil' }));
+                weaponCooldowns.pencil = 90 - (inventory.pencils * 10);
+            }
+            if (inventory.whiteout > 0 && weaponCooldowns.whiteout <= 0) {
+                whiteouts.push({ x: mouse.x, y: mouse.y, radius: 30 + (inventory.whiteout * 10), timer: 150 });
+                weaponCooldowns.whiteout = 90 - (inventory.whiteout * 5);
+            }
+
+            erasers = [];
+            for(let i=0; i < inventory.eraserShields; i++) {
+                let offsetAngle = turretAngle + (i * (Math.PI * 2 / inventory.eraserShields));
+                erasers.push({ x: mouse.x + Math.cos(offsetAngle) * 60, y: mouse.y + Math.sin(offsetAngle) * 60, size: 15 });
+            }
+
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                let b = bullets[i]; 
+                b.x += b.vx; b.y += b.vy;
+                
+                if (b.type === 'protractor') { b.rotation += b.spinSpeed; }
+
+                if (b.type === 'paperclip') { if (b.x < 0 || b.x > canvas.width) b.vx *= -1; if (b.y < 0 || b.y > canvas.height) b.vy *= -1; } 
+                else if (b.x < -50 || b.x > canvas.width+50 || b.y < -50 || b.y > canvas.height+50) { bullets.splice(i, 1); continue; }
+
+                for (let eB = enemyBullets.length - 1; eB >= 0; eB--) {
+                    if (Math.hypot(b.x - enemyBullets[eB].x, b.y - enemyBullets[eB].y) < b.radius + 5) {
+                        enemyBullets.splice(eB, 1); if (b.type !== 'paperclip' && b.type !== 'pierce' && b.type !== 'protractor') { bullets.splice(i, 1); break; }
+                    }
+                } if (!bullets[i]) continue; 
+
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    let e = enemies[j];
+                    if (Math.hypot(b.x - e.x, b.y - e.y) < b.radius + e.size && e.iFrames <= 0) {
+                        let dmg = 35 + (inventory.turrets * 5); 
+                        if (b.type === 'pencil') dmg = 50 + (inventory.pencils * 5); 
+                        if (b.type === 'paperclip') dmg = 35 + (inventory.paperclips * 5);
+                        if (b.type === 'pierce') dmg = 60;
+                        if (b.type === 'protractor') dmg = 25 + (inventory.protractor * 8); 
+
+                        e.hp -= dmg; 
+                        if (b.type === 'pierce' || b.type === 'protractor') { 
+                            e.iFrames = 10; b.pierceCount--; 
+                            if(b.pierceCount <= 0) bullets.splice(i, 1); 
+                        }
+                        else if (b.type !== 'paperclip') bullets.splice(i, 1);
+                        
+                        if (e.hp <= 0) killEnemy(j); break;
+                    }
+                }
+            }
+
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                let b = enemyBullets[i]; b.x += b.vx; b.y += b.vy;
+                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) { enemyBullets.splice(i, 1); continue; }
+                if (erasers.some(e => Math.hypot(e.x - b.x, e.y - b.y) < e.size + 5)) { enemyBullets.splice(i, 1); continue; }
+                if (Math.hypot(b.x - mouse.x, b.y - mouse.y) < mouse.radius + 5) {
+                    enemyBullets.splice(i, 1); mouse.health -= 5; if (mouse.health <= 0 && gameState === "PLAYING") gameState = "GAMEOVER";
+                }
+            }
+
+            for (let i = whiteouts.length - 1; i >= 0; i--) { whiteouts[i].timer--; if (whiteouts[i].timer <= 0) whiteouts.splice(i, 1); }
+
+            let auraRadius = inventory.highlighter > 0 ? 50 + (inventory.highlighter * 15) : 0;
+
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i]; let currentSpeed = e.speed;
+                let angleToMouse = Math.atan2(mouse.y - e.y, mouse.x - e.x); let distToMouse = Math.hypot(mouse.x - e.x, mouse.y - e.y);
+
+                if (e.iFrames > 0) e.iFrames--;
+
+                whiteouts.forEach(w => { if (Math.hypot(w.x - e.x, w.y - e.y) < w.radius + e.size) { currentSpeed *= 0.3; if (Math.random() < 0.02) e.hp -= 5; } });
+                if (inventory.highlighter > 0 && distToMouse < auraRadius + e.size && e.iFrames <= 0) { e.hp -= 10; e.iFrames = 10; }
+                if (e.hp <= 0) { killEnemy(i); continue; }
+
+                if (e.type === 'sniper') {
+                    e.timer--;
+                    if (e.state === 'moving') {
+                        if (distToMouse > 250) { e.x += Math.cos(angleToMouse) * currentSpeed; e.y += Math.sin(angleToMouse) * currentSpeed; } 
+                        else if (distToMouse < 200) { e.x -= Math.cos(angleToMouse) * currentSpeed; e.y -= Math.sin(angleToMouse) * currentSpeed; }
+                        if (e.timer <= 0) { e.state = 'shooting'; e.timer = 30; } 
+                    } else if (e.state === 'shooting') {
+                        if (e.timer === 15) enemyBullets.push({ x: e.x, y: e.y, vx: Math.cos(angleToMouse)*2.5, vy: Math.sin(angleToMouse)*2.5 });
+                        if (e.timer <= 0) { e.state = 'moving'; e.timer = 120; } 
+                    }
+                } else {
+                    e.x += Math.cos(angleToMouse) * currentSpeed; e.y += Math.sin(angleToMouse) * currentSpeed;
+                }
+
+                if (erasers.some(eraser => Math.hypot(eraser.x - e.x, eraser.y - e.y) < eraser.size + e.size) && e.iFrames <= 0) { 
+                    e.hp -= 75 + (inventory.eraserShields * 5); e.iFrames = 20; if(e.hp<=0) killEnemy(i); continue; 
+                }
+
+                let hitTrap = false;
+                for (let t = traps.length - 1; t >= 0; t--) {
+                    if (Math.hypot(traps[t].x - e.x, traps[t].y - e.y) < traps[t].radius + e.size) { 
+                        if (traps[t].type === 'ink') {
+                            let r = traps[t].radius; traps.splice(t, 1); hitTrap = true; destroyEnemyBulletsInRadius(e.x, e.y, r + 20); break; 
+                        }
+                    }
+                } if (hitTrap) { if(e.hp > 0) e.hp -= 200; if(e.hp<=0) killEnemy(i); continue; } 
+
+                if (distToMouse < mouse.radius + (e.size * 0.4)) {
+                    enemies.splice(i, 1); mouse.health -= (e.type === 'tank' ? 30 : (e.type === 'clone' ? 5 : 15)); 
+                    if (mouse.health <= 0 && gameState === "PLAYING") gameState = "GAMEOVER";
+                }
+            }
+
+            for (let i = clickEffects.length - 1; i >= 0; i--) { clickEffects[i].timer--; if (clickEffects[i].timer <= 0) clickEffects.splice(i, 1); }
+        }
+
+        function killEnemy(index) { 
+            let p = 10; if(enemies[index].type === 'tank') p=50; else if(enemies[index].type === 'sniper') p=30; else if(enemies[index].type === 'clone') p=2;
+            score += p; enemies.splice(index, 1); 
+        }
+
+        function drawLevelPips(x, y, level) {
+            for(let i=0; i<MAX_LEVEL; i++) {
+                ctx.fillStyle = i < level ? (level === MAX_LEVEL ? "#ffd700" : "#32cd32") : "rgba(0,0,0,0.1)";
+                ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.beginPath();
+                ctx.moveTo(x+i*22, y+12); ctx.lineTo(x+i*22+6, y-2); ctx.lineTo(x+i*22+20, y-2); ctx.lineTo(x+i*22+14, y+12);
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (gameState === "MAIN_MENU") ctx.filter = 'blur(4px)';
+
+            ctx.fillStyle = "#000088"; ctx.font = "bold 20px 'Comic Sans MS'";
+            if (["PLAYING", "CUSTOM_PLAYING", "UPGRADING", "GAMEOVER"].includes(gameState)) {
+                if (gameState === "CUSTOM_PLAYING") {
+                    ctx.fillText("SANDBOX (Keys 7, 8, 9, 0 spawn on edges)", 20, 30);
+                } else {
+                    ctx.fillText(`Wave: ${wave}`, 20, 30); ctx.fillText(`Score: ${score}`, 150, 30);
+                    ctx.fillText(`Enemies Left: ${enemiesToSpawn + enemies.length}`, 350, 30);
+                }
+                ctx.fillStyle = mouse.health > 30 ? "#008800" : "#cc0000"; 
+                ctx.fillText(gameState === "CUSTOM_PLAYING" ? "Health: GOD" : `Health: ${Math.max(0, mouse.health)}%`, 650, 30);
+                
+                if (mainWeapon && clickCooldown > 0 && (gameState === "PLAYING" || gameState === "CUSTOM_PLAYING")) {
+                    ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(mouse.x - 15, mouse.y + 20, 30, 4);
+                    ctx.fillStyle = "blue"; ctx.fillRect(mouse.x - 15, mouse.y + 20, (1 - (clickCooldown / mainWeapon.cooldown)) * 30, 4);
+                }
+            }
+
+            whiteouts.forEach(w => {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.7)"; ctx.beginPath(); ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = "#ddd"; ctx.lineWidth = 2; ctx.stroke();
+            });
+
+            if (["PLAYING", "CUSTOM_PLAYING", "MAIN_MENU"].includes(gameState) && inventory.highlighter > 0) {
+                ctx.fillStyle = "rgba(255, 255, 0, 0.2)"; ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 50 + (inventory.highlighter * 15), 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = "rgba(255, 255, 0, 0.5)"; ctx.lineWidth = 3; ctx.stroke();
+            }
+
+            traps.forEach(t => {
+                if(t.type==='ink') drawShape('circ', t.x, t.y, t.radius, "#0000bb");
+            });
+            erasers.forEach(e => drawShape('rect', e.x - e.size/2, e.y - e.size/2, e.size, "#ff66b2"));
+            
+            enemies.forEach(e => {
+                let color = e.iFrames > 0 ? "white" : (e.type === 'basic' ? "#cc0000" : (e.type === 'tank' ? "#006600" : (e.type === 'sniper' ? "#800080" : "#00ccff")));
+                if (e.type === 'sniper' || e.type === 'clone') drawShape('tri', e.x, e.y, e.size, color); 
+                else drawShape('rect', e.x - e.size/2, e.y - e.size/2, e.size, color); 
+            });
+
+            bullets.forEach(b => {
+                if (b.type === 'protractor') {
+                    ctx.save();
+                    ctx.translate(b.x, b.y);
+                    ctx.rotate(b.rotation);
+                    ctx.beginPath();
+                    ctx.arc(0, 0, b.radius, 0, Math.PI);
+                    ctx.closePath();
+                    ctx.fillStyle = "rgba(0, 200, 255, 0.6)"; ctx.fill();
+                    ctx.lineWidth = 2; ctx.strokeStyle = "#0088aa"; ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+                    ctx.fillStyle = "#fdf6e3"; ctx.fill(); ctx.stroke();
+                    ctx.strokeStyle = "white"; ctx.lineWidth = 1;
+                    for(let t = 0; t <= 6; t++) {
+                        let ta = (t / 6) * Math.PI;
+                        ctx.beginPath();
+                        ctx.moveTo(Math.cos(ta)*(b.radius-6), Math.sin(ta)*(b.radius-6));
+                        ctx.lineTo(Math.cos(ta)*b.radius, Math.sin(ta)*b.radius);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                } else {
+                    drawShape('circ', b.x, b.y, b.radius, b.type === 'pencil' ? "orange" : (b.type === 'paperclip' ? "silver" : (b.type === 'pierce' ? "#000088" : "#333")));
+                }
+            });
+
+            enemyBullets.forEach(b => drawShape('circ', b.x, b.y, 5, "#cc0000")); 
+            
+            clickEffects.forEach(effect => {
+                if (effect.type === 'circle') {
+                    ctx.beginPath(); ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
+                    ctx.strokeStyle = effect.color; ctx.lineWidth = 3; ctx.stroke();
+                } else if (effect.type === 'cone') {
+                    ctx.beginPath(); ctx.moveTo(effect.x, effect.y);
+                    ctx.arc(effect.x, effect.y, effect.radius, effect.angle - Math.PI/3, effect.angle + Math.PI/3);
+                    ctx.closePath(); ctx.fillStyle = "rgba(230, 194, 0, 0.4)"; ctx.fill();
+                    ctx.strokeStyle = effect.color; ctx.lineWidth = 2; ctx.stroke();
+                }
+            });
+
+            if (["PLAYING", "CUSTOM_PLAYING", "MAIN_MENU"].includes(gameState) || (resumeTimer > 0 && gameState !== "GAMEOVER")) {
+                drawShape('circ', mouse.x, mouse.y, mouse.radius, "#333");
+                if (inventory.turrets > 0) drawShape('circ', mouse.x + Math.cos(turretAngle) * 40, mouse.y + Math.sin(turretAngle) * 40, 6, "#0000bb");
+                if (resumeTimer > 0 && (gameState === "PLAYING" || gameState === "CUSTOM_PLAYING")) {
+                    ctx.fillStyle = "#000088"; ctx.font = "bold 40px 'Comic Sans MS'"; ctx.fillText("READY?", canvas.width/2 - 80, canvas.height/2);
+                }
+            } else if (gameState === "GAMEOVER") {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#cc0000"; ctx.font = "bold 60px 'Comic Sans MS'"; ctx.fillText("GAME OVER!", canvas.width/2 - 170, 220);
+                ctx.fillStyle = "white"; ctx.font = "20px 'Comic Sans MS'"; ctx.fillText("Click anywhere to return to Main Menu", canvas.width/2 - 180, 280);
+            }
+
+            if (gameState === "MAIN_MENU") {
+                ctx.filter = 'none'; ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "white"; ctx.font = "bold 60px 'Comic Sans MS'"; ctx.shadowColor = "black"; ctx.shadowBlur = 10;
+                ctx.fillText("✏️ DOODLE SURVIVOR", 60, 200); ctx.shadowBlur = 0; 
+
+                ctx.fillStyle = (pointer.x >= 200 && pointer.x <= 380 && pointer.y >= 350 && pointer.y <= 430) ? "#00aa00" : "#008800";
+                ctx.fillRect(200, 350, 180, 80); ctx.strokeStyle = "white"; ctx.lineWidth = 5; ctx.strokeRect(200, 350, 180, 80);
+                ctx.fillStyle = "white"; ctx.font = "bold 35px 'Comic Sans MS'"; ctx.fillText("PLAY", 240, 405);
+                
+                ctx.fillStyle = (pointer.x >= 420 && pointer.x <= 600 && pointer.y >= 350 && pointer.y <= 430) ? "#aa8800" : "#886600";
+                ctx.fillRect(420, 350, 180, 80); ctx.strokeStyle = "white"; ctx.lineWidth = 5; ctx.strokeRect(420, 350, 180, 80);
+                ctx.fillStyle = "white"; ctx.font = "bold 30px 'Comic Sans MS'"; ctx.fillText("SANDBOX", 435, 402);
+            }
+
+            if (gameState === "START" || gameState === "CUSTOM_START") drawMenuOverlay("CHOOSE YOUR MAIN WEAPON", starterWeapons, "Click an option to begin!");
+            if (gameState === "UPGRADING") {
+                let itemsList = currentUpgrades.map(u => ({ name: `${u.name} ${u.id==='health'?"":`(Lv. ${(inventory[keyMap[u.id]]||0)+1})`}`, desc: u.desc }));
+                drawMenuOverlay("WAVE COMPLETE!", itemsList, "Choose an upgrade (Max Lv. 5):");
+            }
+
+            if (showInventory) {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 15;
+                ctx.fillStyle = "#2b2b2b";
+                ctx.beginPath(); ctx.roundRect(80, 40, 640, 420, 15); ctx.fill();
+                ctx.strokeStyle = "#ffb347"; ctx.lineWidth = 4; ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                ctx.fillStyle = "#ffb347"; ctx.font = "bold 30px 'Comic Sans MS'"; 
+                ctx.fillText("🎒 BACKPACK 🎒", canvas.width/2 - ctx.measureText("🎒 BACKPACK 🎒").width/2, 85);
+                
+                ctx.fillStyle = "#3a3a3a"; ctx.beginPath(); ctx.roundRect(250, 105, 300, 40, 8); ctx.fill();
+                ctx.strokeStyle = "#555"; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = "white"; ctx.font = "bold 18px 'Comic Sans MS'";
+                let mwText = mainWeapon ? `Main Weapon: ${mainWeapon.name}` : "Main Weapon: None";
+                ctx.fillText(mwText, canvas.width/2 - ctx.measureText(mwText).width/2, 132);
+
+                // --- CHANGED LOGIC HERE ---
+                let itemsList = Object.keys(itemNames);
+                if (gameState !== "CUSTOM_PLAYING") {
+                    itemsList = itemsList.filter(key => inventory[key] > 0);
+                }
+                
+                let startY = 160;
+
+                if (itemsList.length === 0 && gameState !== "CUSTOM_PLAYING") {
+                    ctx.fillStyle = "#888"; ctx.font = "italic 20px 'Comic Sans MS'";
+                    let msg = "No upgrades unlocked yet! Survive to get some!";
+                    ctx.fillText(msg, canvas.width/2 - ctx.measureText(msg).width/2, startY + 100);
+                } else {
+                    itemsList.forEach((key, i) => {
+                        let col = i % 2; let row = Math.floor(i / 2);
+                        let bx = 110 + (col * 290); let by = startY + (row * 65);
+
+                        ctx.fillStyle = "#3a3a3a"; ctx.beginPath(); ctx.roundRect(bx, by, 280, 55, 8); ctx.fill();
+                        ctx.strokeStyle = "#555"; ctx.lineWidth = 2; ctx.stroke();
+
+                        ctx.fillStyle = "white"; ctx.font = "16px 'Comic Sans MS'";
+                        ctx.fillText(`${itemNames[key]}`, bx + 10, by + 22);
+
+                        if (gameState === "CUSTOM_PLAYING") {
+                            let levelStr = `Lv. ${inventory[key]}`;
+                            if (inventory[key] === MAX_LEVEL) levelStr = "MAX";
+                            ctx.fillStyle = "#aaa"; ctx.fillText(levelStr, bx + 10, by + 45);
+
+                            let minHov = (pointer.x >= bx+170 && pointer.x <= bx+210 && pointer.y >= by+15 && pointer.y <= by+45);
+                            ctx.fillStyle = minHov ? "#ff4c4c" : "#cc0000";
+                            ctx.beginPath(); ctx.roundRect(bx+170, by+15, 40, 30, 5); ctx.fill();
+                            ctx.fillStyle = "white"; ctx.font = "bold 20px 'Comic Sans MS'"; ctx.fillText("-", bx+185, by+37);
+
+                            let plusHov = (pointer.x >= bx+220 && pointer.x <= bx+260 && pointer.y >= by+15 && pointer.y <= by+45);
+                            ctx.fillStyle = plusHov ? "#00cc00" : "#008800";
+                            ctx.beginPath(); ctx.roundRect(bx+220, by+15, 40, 30, 5); ctx.fill();
+                            ctx.fillStyle = "white"; ctx.fillText("+", bx+233, by+37);
+                        } else {
+                            drawLevelPips(bx + 10, by + 30, inventory[key]); 
+                        }
+                    });
+                }
+
+                ctx.font = "16px 'Comic Sans MS'"; ctx.fillStyle = "#888"; 
+                ctx.fillText("Press TAB again to close...", canvas.width/2 - ctx.measureText("Press TAB again to close...").width/2, 445);
+            }
+        }
+
+        function drawMenuOverlay(title, items, subtitle) {
+            ctx.fillStyle = "rgba(253, 246, 227, 0.9)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#008800"; ctx.font = "bold 40px 'Comic Sans MS'";
+            ctx.fillText(title, canvas.width/2 - ctx.measureText(title).width/2, 100);
+            ctx.fillStyle = "#333"; ctx.font = "20px 'Comic Sans MS'";
+            ctx.fillText(subtitle, canvas.width/2 - ctx.measureText(subtitle).width/2, 140);
+
+            items.forEach((item, index) => {
+                let bx = getBoxX(index, items.length);
+                ctx.fillStyle = (pointer.x >= bx && pointer.x <= bx + 170 && pointer.y >= 200 && pointer.y <= 350) ? "#eee" : "white";
+                ctx.fillRect(bx, 200, 170, 150); ctx.strokeStyle = "#333"; ctx.lineWidth = 3; ctx.strokeRect(bx, 200, 170, 150);
+                ctx.fillStyle = "#000088"; ctx.font = "bold 16px 'Comic Sans MS'";
+                let textWidth = ctx.measureText(item.name).width;
+                ctx.fillText(item.name, bx + 85 - textWidth/2, 240);
+                ctx.fillStyle = "#333"; ctx.font = "13px 'Comic Sans MS'";
+                let words = item.desc.split(' '); let line = ''; let ly = 270;
+                for(let n = 0; n < words.length; n++) {
+                    let testLine = line + words[n] + ' '; let metrics = ctx.measureText(testLine);
+                    if(metrics.width > 150 && n > 0) { ctx.fillText(line, bx + 10, ly); line = words[n] + ' '; ly += 18; } 
+                    else { line = testLine; }
+                } ctx.fillText(line, bx + 10, ly);
+            });
+        }
+
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+        gameLoop();
+    </script>
+</body>
+</html>
