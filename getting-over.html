@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Getting Over It: The Endless Journey</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(to right, #ff4e50, #f9d423, #4b1248, #000046, #00E5FF, #2C3E50);
+            background-size: 600% 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        canvas { display: block; cursor: crosshair; }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 12px;
+            pointer-events: none;
+            border: 1px solid rgba(255,255,255,0.2);
+            z-index: 10;
+        }
+        #debug {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #00ffcc;
+            font-weight: bold;
+            display: none;
+            text-shadow: 0 0 10px #00ffcc;
+            z-index: 10;
+        }
+        #checkpoint-msg {
+            position: absolute;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #FFD700;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 0 0 20px #FFD700, 0 0 10px #ff4e50;
+            opacity: 0;
+            transition: opacity 0.5s;
+            pointer-events: none;
+            z-index: 20;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+</head>
+<body>
+
+    <div id="ui">
+        <h1 id="zone-name" style="margin: 0 0 5px 0;">Sunset Canyon</h1>
+        <p style="margin: 0; font-size: 14px; opacity: 0.8;"><strong>Controls:</strong> Move Mouse to swing. <br><span style="color:#00ffcc;">Swing mid-air to nudge!</span></p>
+    </div>
+    <div id="checkpoint-msg">CHECKPOINT REACHED!</div>
+    <div id="debug">DUCK MODE ACTIVE (Press 'Q' to exit)</div>
+
+    <script>
+        const Engine = Matter.Engine, Render = Matter.Render, Runner = Matter.Runner,
+              Bodies = Matter.Bodies, Body = Matter.Body, Composite = Matter.Composite,
+              Constraint = Matter.Constraint, Events = Matter.Events;
+
+        const engine = Engine.create();
+        engine.gravity.y = 1.2; 
+        engine.positionIterations = 10; 
+
+        const render = Render.create({
+            element: document.body,
+            engine: engine,
+            options: {
+                width: window.innerWidth, height: window.innerHeight,
+                wireframes: false, background: 'transparent'
+            }
+        });
+
+        // PLAYER SETUP
+        const playerGroup = Body.nextGroup(true);
+        const deskBase = Bodies.rectangle(400, 400, 140, 24, { render: { fillStyle: '#2C3E50' } });
+        const monitor = Bodies.rectangle(440, 368, 40, 40, { render: { fillStyle: '#00E5FF' }, chamfer: { radius: 4 } });
+        const deskTop = Body.create({ parts: [deskBase, monitor], collisionFilter: { group: playerGroup }, density: 0.001 });
+        
+        const legShaft = Bodies.rectangle(400, 460, 14, 110, { render: { fillStyle: '#E0E0E0' }});
+        const legFoot = Bodies.rectangle(376, 510, 65, 20, { chamfer: { radius: 10 }, render: { fillStyle: '#1A1A1A' }});
+        const deskLeg = Body.create({ parts: [legShaft, legFoot], collisionFilter: { group: playerGroup }, density: 0.012, friction: 1.0, frictionStatic: 2.0 });
+        
+        const joint = Constraint.create({ bodyA: deskTop, bodyB: deskLeg, pointA: { x: -20, y: 10 }, pointB: { x: 8, y: -50 }, stiffness: 0.9, length: 0, render: { visible: false } });
+
+        Composite.add(engine.world, [deskTop, deskLeg, joint]);
+
+        // MATERIALS
+        const rock = { isStatic: true, friction: 0.9, render: { fillStyle: '#3B1F2B' } };
+        const ice = { isStatic: true, friction: 0.01, render: { fillStyle: '#A5F2F3' } };
+        const easyFloor = { isStatic: true, render: { fillStyle: '#4a2b3a' } };
+        const bounceMaterial = { isStatic: true, restitution: 1.5, render: { fillStyle: '#FF3366' } };
+        const superBounce = { isStatic: true, restitution: 2.2, render: { fillStyle: '#00FFCC' } };
+        const slideMaterial = { isStatic: true, friction: 0, render: { fillStyle: '#00E5FF' } };
+
+        const platforms = [
+            // ZONE 1: SUNSET CANYON
+            Bodies.rectangle(400, 600, 1000, 200, rock),
+            Bodies.rectangle(1300, 750, 800, 100, { isStatic: true, friction: 0.4, angle: 0.4, render: { fillStyle: '#DB504A' } }),
+            Bodies.rectangle(1800, 950, 400, 200, rock),
+            Bodies.rectangle(2300, 950, 600, 200, rock), 
+            Bodies.rectangle(2300, 550, 600, 200, { isStatic: true, render: { fillStyle: '#5C2A3D' } }),  
+            Bodies.rectangle(2700, 920, 150, 150, rock), 
+            Bodies.rectangle(2950, 880, 150, 150, rock), 
+            Bodies.rectangle(3200, 840, 150, 150, rock), 
+            Bodies.rectangle(3400, 820, 120, 120, rock), 
+            Bodies.rectangle(3800, 100, 400, 40, rock), 
+            Bodies.rectangle(4000, 0, 40, 200, rock),
+            Bodies.rectangle(4000, 600, 1200, 40, easyFloor),
+
+            // ZONE 2: FROST PEAKS
+            Bodies.rectangle(4200, 300, 300, 40, rock), 
+            Bodies.rectangle(4500, 200, 200, 40, ice), 
+            Bodies.rectangle(4400, 100, 600, 40, ice), 
+            Bodies.rectangle(4800, 50, 150, 40, rock),  
+            Bodies.rectangle(5100, 0, 500, 40, ice),  
+            Bodies.rectangle(5800, 200, 900, 100, rock), 
+            Bodies.rectangle(6500, -100, 150, 600, rock), 
+            Bodies.rectangle(7200, -400, 800, 40, ice),
+            Bodies.rectangle(8500, -300, 1500, 60, easyFloor), 
+            Bodies.rectangle(9250, -600, 40, 600, easyFloor), 
+            Bodies.rectangle(8500, -1300, 600, 40, rock),
+
+            // ZONE 3: THE PLAYGROUND
+            Bodies.rectangle(9300, -1050, 800, 40, { ...slideMaterial, angle: 0.3 }), 
+            Bodies.rectangle(9300, -1250, 800, 40, { ...slideMaterial, angle: 0.3 }), 
+            Bodies.rectangle(9750, -850, 40, 200, rock), 
+            Bodies.rectangle(10300, -750, 800, 40, { isStatic: true, render: { fillStyle: '#f9d423' }, label: 'conveyor' }),
+            Bodies.rectangle(11000, -750, 200, 40, bounceMaterial),
+            Bodies.rectangle(11200, -850, 150, 20, easyFloor), 
+            Bodies.rectangle(11350, -900, 40, 300, rock), 
+            Bodies.rectangle(12000, -2000, 800, 40, easyFloor),
+
+            // ZONE 4: THE NEON DROP 
+            Bodies.rectangle(12700, -1800, 600, 40, { ...superBounce, angle: 0.2 }), 
+            Bodies.rectangle(13400, -1600, 600, 40, { ...superBounce, angle: -0.1 }), 
+            Bodies.rectangle(14100, -1700, 600, 40, { ...superBounce, angle: 0.1 }),  
+            Bodies.rectangle(14800, -1500, 600, 40, { ...superBounce, angle: -0.1 }), 
+            
+            // Note: The ladder was removed here and replaced with an elevator!
+
+            Bodies.rectangle(15400, -2000, 800, 40, ice), 
+            Bodies.rectangle(15700, -2150, 150, 20, easyFloor), 
+            Bodies.rectangle(15700, -2400, 150, 20, easyFloor), 
+            Bodies.rectangle(15700, -2650, 150, 20, easyFloor), 
+            Bodies.rectangle(15800, -2800, 40, 400, rock), // THE DOOR (TOP)
+            Bodies.rectangle(15800, -2000, 40, 500, rock), // THE DOOR (BOTTOM)
+            
+            // ZONE 5: THE ANTI-GRAVITY CORE
+            Bodies.rectangle(16200, -2400, 400, 40, rock), 
+            Bodies.rectangle(16800, -2300, 200, 200, rock), 
+            Bodies.rectangle(17300, -2600, 250, 250, rock), 
+            Bodies.rectangle(17800, -2200, 150, 150, rock), 
+            Bodies.rectangle(18400, -2800, 200, 40, rock), 
+            
+            // VICTORY
+            Bodies.rectangle(19200, -2800, 1000, 80, { isStatic: true, render: { fillStyle: '#FFD700' } }),
+            Bodies.rectangle(19200, -2900, 400, 100, { isStatic: true, isSensor: true, render: { fillStyle: 'transparent' }, label: 'victory' })
+        ];
+
+        // SENSORS & ELEVATORS
+        const elevators = [
+            Bodies.rectangle(3450, 400, 200, 900, { isStatic: true, isSensor: true, render: { fillStyle: 'rgba(0, 229, 255, 0.2)' }, label: 'elevator' }),
+            Bodies.rectangle(6300, -100, 250, 1000, { isStatic: true, isSensor: true, render: { fillStyle: 'rgba(0, 255, 0, 0.3)' }, label: 'elevator' }), 
+            Bodies.rectangle(8000, -800, 250, 1000, { isStatic: true, isSensor: true, render: { fillStyle: 'rgba(100, 100, 255, 0.3)' }, label: 'elevator' }),
+            Bodies.rectangle(11500, -1400, 200, 1200, { isStatic: true, isSensor: true, render: { fillStyle: 'rgba(255, 51, 102, 0.2)' }, label: 'elevator' }),
+            // --- YOUR BRAND NEW NEON DROP ELEVATOR ---
+            Bodies.rectangle(15100, -1800, 250, 1000, { isStatic: true, isSensor: true, render: { fillStyle: 'rgba(0, 255, 204, 0.3)' }, label: 'elevator' })
+            // ------------------------------------------
+        ];
+
+        const antiGravZone = Bodies.rectangle(17200, -2500, 2600, 1600, { isStatic: true, isSensor: true, render: { fillStyle: 'rgba(155, 89, 182, 0.15)' } });
+
+        Composite.add(engine.world, [...platforms, ...elevators, antiGravZone]);
+
+        // ==========================================
+        // STATE LOGIC & CHECKPOINTS
+        // ==========================================
+        let isDuckMode = false;
+        let cheatCode = "";
+        let respawnX = 400;
+        let respawnY = 400;
+        let hasReachedPlayground = false;
+        const keys = {};
+
+        window.addEventListener('keydown', (e) => {
+            let key = e.key.toLowerCase();
+            keys[key] = true;
+            if (isDuckMode && key === 'q') {
+                isDuckMode = false;
+                document.getElementById('debug').style.display = 'none';
+                cheatCode = ""; 
+            } else {
+                cheatCode += key;
+                if (cheatCode.endsWith("duck")) {
+                    isDuckMode = true;
+                    document.getElementById('debug').style.display = 'block';
+                    cheatCode = ""; 
+                }
+            }
+        });
+        window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+        let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+        window.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
+
+        Events.on(engine, 'beforeUpdate', () => {
+            let currentX = deskTop.position.x;
+            let currentY = deskTop.position.y;
+            let title = document.getElementById('zone-name');
+
+            // UPDATE ZONE TEXT
+            if (currentX > 18700) { title.innerText = "VICTORY!"; title.style.color = "#FFD700"; }
+            else if (currentX > 16000) { title.innerText = "The Anti-Gravity Core"; title.style.color = "#9B59B6"; }
+            else if (currentX > 12400) { title.innerText = "The Neon Drop"; title.style.color = "#00FFCC"; }
+            else if (currentX > 8800) { title.innerText = "The Playground"; title.style.color = "#FF3366"; }
+            else if (currentX > 4000) { title.innerText = "The Frost Peaks"; title.style.color = "#A5F2F3"; }
+            else { title.innerText = "Sunset Canyon"; title.style.color = "#f9d423"; }
+
+            // CHECKPOINT TRIGGER
+            if (currentX > 8600 && !hasReachedPlayground) {
+                hasReachedPlayground = true;
+                respawnX = 8600;
+                respawnY = -400; 
+                
+                let msg = document.getElementById('checkpoint-msg');
+                msg.style.opacity = '1';
+                setTimeout(() => { msg.style.opacity = '0'; }, 3000);
+            }
+
+            // DUCK FLIGHT vs GRAVITY
+            let inAntiGrav = Matter.Bounds.overlaps(deskTop.bounds, antiGravZone.bounds);
+            if (isDuckMode) {
+                engine.gravity.y = 0;
+                let vx = 0, vy = 0;
+                if (keys['w']) vy -= 15; if (keys['s']) vy += 15;
+                if (keys['a']) vx -= 15; if (keys['d']) vx += 15;
+                Body.setVelocity(deskTop, { x: vx, y: vy });
+            } else {
+                engine.gravity.y = inAntiGrav ? 0.05 : 1.2; 
+
+                // MOUSE CONTROLS
+                const screenCenterX = window.innerWidth / 2;
+                const screenCenterY = window.innerHeight / 2;
+                let targetAngle = Math.atan2(mouseY - screenCenterY, mouseX - screenCenterX) - Math.PI/2;
+                let diff = targetAngle - deskLeg.angle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                Body.setAngularVelocity(deskLeg, diff * 0.95); 
+
+                // DIRECTIONAL NUDGE
+                let swingSpeed = deskLeg.angularVelocity;
+                if (Math.abs(swingSpeed) > 0.08) {
+                    Body.applyForce(deskTop, deskTop.position, {
+                        x: swingSpeed * 0.003, 
+                        y: -Math.abs(swingSpeed) * 0.001 
+                    });
+                }
+
+                // ELEVATOR LOGIC
+                elevators.forEach(elv => {
+                    if (Matter.Bounds.overlaps(deskTop.bounds, elv.bounds)) {
+                        let isAtTop = deskTop.position.y < (elv.bounds.min.y + 150);
+                        let pushX = isAtTop ? 4.5 : deskTop.velocity.x; 
+                        Body.setVelocity(deskTop, { x: pushX, y: -10 }); 
+                    }
+                });
+
+                // CONVEYOR LOGIC
+                platforms.forEach(p => {
+                    if (p.label === 'conveyor' && Matter.Bounds.overlaps(deskTop.bounds, p.bounds)) {
+                        Body.applyForce(deskTop, deskTop.position, { x: 0.004, y: 0 });
+                    }
+                });
+            }
+
+            // FALL RESET LOGIC
+            let deathFloorY = 1500;
+            if (currentX > 8500) deathFloorY = 500;
+            if (currentX > 12000) deathFloorY = -200;
+
+            if (currentY > deathFloorY) {
+                Body.setPosition(deskTop, { x: respawnX, y: respawnY });
+                Body.setPosition(deskLeg, { x: respawnX, y: respawnY + 50 });
+                Body.setVelocity(deskTop, {x: 0, y: 0});
+                Body.setVelocity(deskLeg, {x: 0, y: 0});
+            }
+        });
+
+        Events.on(engine, 'afterUpdate', () => {
+            Render.lookAt(render, {
+                min: { x: deskTop.position.x - window.innerWidth/2, y: deskTop.position.y - window.innerHeight/2 },
+                max: { x: deskTop.position.x + window.innerWidth/2, y: deskTop.position.y + window.innerHeight/2 }
+            });
+            document.body.style.backgroundPosition = `${-deskTop.position.x * 0.15}px 0px`;
+        });
+
+        Render.run(render);
+        Runner.run(Runner.create(), engine);
+    </script>
+</body>
+</html>
