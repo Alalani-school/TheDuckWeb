@@ -22,7 +22,7 @@
             margin: 0;
         }
         #tos-modal {
-            display: none; /* Hidden by default */
+            display: none;
             position: fixed;
             z-index: 1000;
             left: 0;
@@ -92,7 +92,6 @@
     <div class="main-content">
         <h1>Welcome to the Dashboard</h1>
         <p>You have successfully accepted the terms.</p>
-        <button onclick="clearStorage()" style="margin-top: 20px; font-size: 0.8rem;">Reset LocalStorage (for testing)</button>
     </div>
 
     <div id="tos-modal">
@@ -116,29 +115,8 @@
     <script>
         const modal = document.getElementById('tos-modal');
         window.onload = function() {
-            const hasAccepted = false);
-            
-            if (!hasAccepted) {
-                modal.style.display = 'block';
-            }
+            modal.style.display = 'block';
         };
-
-        // 2. Function to handle Acceptance
-        function acceptTerms() {
-            localStorage.setItem('tos_accepted', 'true');
-            localStorage.setItem('tos_accepted_date', new Date().toISOString());
-            modal.style.display = 'none';
-            console.log("Terms accepted and saved.");
-        }
-
-        // 3. Function to handle Decline
-        function declineTerms() {
-            alert("You must accept the terms to use this service.");
-            // Optionally redirect them away
-            // window.location.href = "https://google.com";
-        }
-
-        // Helper for your testing
         function clearStorage() {
             localStorage.removeItem('tos_accepted');
             localStorage.removeItem('tos_accepted_date');
