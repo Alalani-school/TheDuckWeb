@@ -15,7 +15,57 @@
             --btn-text: #2c3e50;
             --icon-color: #ffffff;
         }
+        /* TOS Modal Overlay */
+        #tos-modal {
+            display: none; 
+            position: fixed;
+            z-index: 10000; /* Higher than other elements */
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+        }
 
+        /* Modal Content Box */
+        .tos-modal-content {
+            background-color: var(--box-bg);
+            color: var(--text-main);
+            margin: 10% auto;
+            padding: 2.5rem;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            border: 2px solid var(--menu-bg);
+        }
+
+        .tos-scroll-area {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            text-align: left;
+        }
+
+        .tos-scroll-area h3 {
+            margin-top: 0;
+            color: var(--btn-hover);
+            font-size: 1.1rem;
+        }
+
+        .tos-button-group {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+        }
         body.theme-dark {
             --bg-gradient: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
             --menu-bg: #111;
@@ -357,6 +407,28 @@
     </style>
 </head>
 <body oncontextmenu="return false;">
+    <div id="tos-modal">
+        <div class="tos-modal-content">
+            <h2 style="font-size: 32px; margin-bottom: 10px;">📜 Terms of Service</h2>
+            <p>Please review and accept our rules to enter Ducky's Website.</p>
+            
+            <div class="tos-scroll-area">
+                <h3>1. Terms of Usage</h3>
+                <p>The creator of this site is not responsible for your actions while using this website.</p>
+                <hr style="opacity: 0.2;">
+                <h3>2. Terms of Cheating</h3>
+                <p>Cheating on this site is allowed, as long as you do not disrupt other players or the server stability.</p>
+                <hr style="opacity: 0.2;">
+                <h3>3. Storage</h3>
+                <p>We use local storage to remember your agreement, your coins, and your unlocked themes.</p>
+            </div>
+
+            <div class="tos-button-group">
+                <button class="action-btn" style="background: #e74c3c;" onclick="declineTerms()">Decline</button>
+                <button class="action-btn" style="background: #2ecc71;" onclick="acceptTerms()">Accept & Continue</button>
+            </div>
+        </div>
+    </div>
 
     <div id="custom-alert-overlay">
         <div id="custom-alert-box">
@@ -620,6 +692,24 @@
 
     <script>
     (async function() {
+        const originalOnload = window.onload;
+        window.onload = function() {
+            if (originalOnload) originalOnload();
+            const hasAccepted = localStorage.getItem('tos_accepted');
+            if (!hasAccepted) {
+                document.getElementById('tos-modal').style.display = 'block';
+            }
+        };
+        function acceptTerms() {
+            localStorage.setItem('tos_accepted', 'true');
+            localStorage.setItem('tos_accepted_date', new Date().toISOString());
+            document.getElementById('tos-modal').style.display = 'none';
+            console.log("Terms accepted.");
+        }
+
+        function declineTerms() {
+            window.location.href = "blocked.html";
+        }
         let loadTimer;
         let isSpinning = false;
         let particles = [];
@@ -1436,6 +1526,8 @@
         window.gameState.unlockedThemes = unlockedThemes;
         window.gameState.activeTheme = activeTheme;
         window.hoihpohivpoweahovropagh4p9h8g4 = hoihpohivpoweahovropagh4p9h8g4;
+        window.acceptTerms = acceptTerms;
+        window.declineTerms = declineTerms;
     })();
     </script>
 </body>
