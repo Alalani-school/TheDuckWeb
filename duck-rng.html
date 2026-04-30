@@ -197,6 +197,13 @@
 </div>
 
 <script>
+    document.addEventListener('keydown', function(event) {
+        if (event.keyCode === 123) event.preventDefault();
+        if ((event.ctrlKey && event.shiftKey && event.keyCode === 73) ||
+            (event.ctrlKey && event.shiftKey && event.keyCode === 74) ||
+            (event.ctrlKey && event.shiftKey && event.keyCode === 67)) event.preventDefault();
+        if (event.ctrlKey && event.keyCode === 85) event.preventDefault();
+    });
     const duckData = [
         { id: "mallard", name: "Mallard", rarity: "Common", weight: 500, svg: { body: "#8D6E63", head: "#4CAF50", beak: "#FFB300", tail: "#795548", accessory: "" } },
         { id: "rubber", name: "Rubber", rarity: "Common", weight: 400, svg: { body: "#FFEB3B", head: "#FFEB3B", beak: "#FF9800", tail: "#FDD835", accessory: "" } },
