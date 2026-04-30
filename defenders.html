@@ -179,10 +179,14 @@
 </div>
 
 <script>
-// ==========================================
-// ANTI-CHEAT ENCRYPTION VAULT (IIFE)
-// ==========================================
 (() => {
+    document.addEventListener('keydown', function(event) {
+            if (event.keyCode === 123) event.preventDefault();
+            if ((event.ctrlKey && event.shiftKey && event.keyCode === 73) ||
+                (event.ctrlKey && event.shiftKey && event.keyCode === 74) ||
+                (event.ctrlKey && event.shiftKey && event.keyCode === 67)) event.preventDefault();
+            if (event.ctrlKey && event.keyCode === 85) event.preventDefault();
+        });
     
     // --- MASSIVE HERO DATABASE ---
     const HERO_DB = {
