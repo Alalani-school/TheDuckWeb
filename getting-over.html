@@ -63,6 +63,13 @@
     <div id="debug">DUCK MODE ACTIVE (Press 'Q' to exit)</div>
 
     <script>
+        document.addEventListener('keydown', function(event) {
+            if (event.keyCode === 123) event.preventDefault();
+            if ((event.ctrlKey && event.shiftKey && event.keyCode === 73) ||
+                (event.ctrlKey && event.shiftKey && event.keyCode === 74) ||
+                (event.ctrlKey && event.shiftKey && event.keyCode === 67)) event.preventDefault();
+            if (event.ctrlKey && event.keyCode === 85) event.preventDefault();
+        });
         const Engine = Matter.Engine, Render = Matter.Render, Runner = Matter.Runner,
               Bodies = Matter.Bodies, Body = Matter.Body, Composite = Matter.Composite,
               Constraint = Matter.Constraint, Events = Matter.Events;
