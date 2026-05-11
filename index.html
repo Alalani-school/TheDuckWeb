@@ -438,6 +438,7 @@
         <p>Please close the Inspect Element / Developer Tools to continue using this site.</p>
         <p style="font-size: 14px; margin-top: 20px; opacity: 0.7;">(If you closed it and this is still here, please refresh the page)</p>
     </div>
+    <div id="site-root">
     <div id="tos-modal">
         <div class="tos-modal-content">
             <h2 style="font-size: 32px; margin-bottom: 10px;">📜 Terms of Service</h2>
@@ -720,34 +721,151 @@
         </div>
         <iframe id="game-frame" src="" oncontextmenu="return false;"></iframe>
     </div>
+    </div>
 
     <script>
-    (function() {
-        const overlay = document.getElementById('anti-inspect-overlay');
-        const threshold = 160;
-        function checkDevTools() {
-            const widthDiff = window.outerWidth - window.innerWidth > threshold;
-            const heightDiff = window.outerHeight - window.innerHeight > threshold;
+    (function () {
+    const overlay = document.getElementById('anti-inspect-overlay');
+    const siteRoot = document.getElementById('site-root');
 
-            if (widthDiff || heightDiff) {
-                overlay.style.display = 'flex';
-            } else {
-                overlay.style.display = 'none';
-            }
+    const threshold = 160;
+    const STORAGE_KEY = 'encrypted_site_backup_v1';
+    const KEY_STORAGE = 'encrypted_site_key_v1';
+
+    let siteLocked = false;
+
+    function arrToB64(arr) {
+        let bin = '';
+        arr.forEach(b => bin += String.fromCharCode(b));
+        return btoa(bin);
+    }
+
+    function b64ToArr(b64) {
+        const bin = atob(b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return arr;
+    }
+
+    async function getKey() {
+        let savedKey = localStorage.getItem(KEY_STORAGE);
+
+        if (!savedKey) {
+            const raw = crypto.getRandomValues(new Uint8Array(32));
+            savedKey = arrToB64(raw);
+            localStorage.setItem(KEY_STORAGE, savedKey);
         }
-        setInterval(checkDevTools, 50);
-        window.addEventListener('keydown', (e) => {
-            if (
-                e.key === 'F12' || 
-                (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) ||
-                (e.ctrlKey && e.key === 'U')
-            ) {
-                e.preventDefault();
-                alert('Developer Tools are disabled.');
-                return false;
-            }
-        });
-    })();
+
+        return crypto.subtle.importKey(
+            'raw',
+            b64ToArr(savedKey),
+            { name: 'AES-GCM' },
+            false,
+            ['encrypt', 'decrypt']
+        );
+    }
+
+    async function encryptText(text) {
+        const key = await getKey();
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(text);
+
+        const encrypted = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            encoded
+        );
+
+        const combined = new Uint8Array(iv.length + encrypted.byteLength);
+        combined.set(iv, 0);
+        combined.set(new Uint8Array(encrypted), iv.length);
+
+        return arrToB64(combined);
+    }
+
+    async function decryptText(data) {
+        try {
+            const key = await getKey();
+            const combined = b64ToArr(data);
+
+            const iv = combined.slice(0, 12);
+            const encrypted = combined.slice(12);
+
+            const decrypted = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv },
+                key,
+                encrypted
+            );
+
+            return new TextDecoder().decode(decrypted);
+        } catch {
+            return null;
+        }
+    }
+
+    function devToolsOpen() {
+        return (
+            window.outerWidth - window.innerWidth > threshold ||
+            window.outerHeight - window.innerHeight > threshold
+        );
+    }
+
+    async function lockSite() {
+        if (siteLocked || !siteRoot) return;
+
+        const html = siteRoot.innerHTML;
+        const encrypted = await encryptText(html);
+
+        localStorage.setItem(STORAGE_KEY, encrypted);
+
+        siteRoot.innerHTML = '';
+        siteRoot.style.display = 'none';
+        overlay.style.display = 'flex';
+
+        siteLocked = true;
+    }
+
+    async function unlockSite() {
+        if (!siteLocked || !siteRoot) return;
+
+        const encrypted = localStorage.getItem(STORAGE_KEY);
+        const html = encrypted ? await decryptText(encrypted) : null;
+
+        if (html) {
+            siteRoot.innerHTML = html;
+        }
+
+        siteRoot.style.display = '';
+        overlay.style.display = 'none';
+
+        localStorage.removeItem(STORAGE_KEY);
+
+        siteLocked = false;
+    }
+
+    async function checkDevTools() {
+        if (devToolsOpen()) {
+            await lockSite();
+        } else {
+            await unlockSite();
+        }
+    }
+
+    setInterval(checkDevTools, 250);
+
+    window.addEventListener('keydown', (e) => {
+        const blocked =
+            e.key === 'F12' ||
+            (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key.toUpperCase())) ||
+            (e.ctrlKey && e.key.toUpperCase() === 'U');
+
+        if (blocked) {
+            e.preventDefault();
+            lockSite();
+            return false;
+        }
+    });
+})();
     (async function() {
         const originalOnload = window.onload;
         window.onload = function() {
